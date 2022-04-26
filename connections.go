@@ -302,19 +302,17 @@ func (conn *connection) readLoop() {
 				continue
 			}
 
-			if conn.config.Authenticate != nil {
+			msg := operationMessageForType(gqlConnectionAck)
+			if conn.config.Authenticate != nil && data.AuthToken != "" {
 				user, err := conn.config.Authenticate(data.AuthToken)
 				if err != nil {
-					msg := operationMessageForType(gqlConnectionError)
+					msg = operationMessageForType(gqlConnectionError)
 					msg.Payload = fmt.Sprintf("Failed to authenticate user: %v", err)
-					conn.outgoing <- msg
 				} else {
 					conn.user = user
-					conn.outgoing <- operationMessageForType(gqlConnectionAck)
 				}
-			} else {
-				conn.outgoing <- operationMessageForType(gqlConnectionAck)
 			}
+			conn.outgoing <- msg
 
 		// Let event handlers deal with starting operations
 		case gqlStart:
