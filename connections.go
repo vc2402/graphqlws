@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -104,6 +105,7 @@ type ConnectionEventHandlers struct {
 type ConnectionConfig struct {
 	Authenticate  AuthenticateFunc
 	EventHandlers ConnectionEventHandlers
+	Logger        *logrus.Entry
 }
 
 // Connection is an interface to represent GraphQL WebSocket connections.
@@ -152,7 +154,10 @@ func NewConnection(ws *websocket.Conn, config ConnectionConfig, auth interface{}
 	conn.id = uuid.New().String()
 	conn.ws = ws
 	conn.config = config
-	conn.logger = NewLogger("connection/" + conn.id)
+	conn.logger = config.Logger
+	if conn.logger == nil {
+		conn.logger = NewLogger("connection/" + conn.id)
+	}
 	conn.closed = false
 	conn.closeMutex = &sync.Mutex{}
 	conn.user = auth
