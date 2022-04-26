@@ -1,8 +1,7 @@
-**Note: We're looking for a new maintainer for `graphqlws`. Please reach out via jannis@thegraph.com if you're interested.**
-
----
 
 # graphqlws
+
+This is a fork of github.com/functionalfoundry/graphqlws
 
 Implementation of the [GraphQL over WebSocket protocol] in Go.
 Brought to you by [Functional Foundry](https://functionalfoundry.com).

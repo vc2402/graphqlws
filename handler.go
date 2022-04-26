@@ -5,19 +5,25 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 )
 
 // HandlerConfig stores the configuration of a GraphQL WebSocket handler.
 type HandlerConfig struct {
 	SubscriptionManager SubscriptionManager
 	Authenticate        AuthenticateFunc
+	ReqAuthenticate     RequestAuthenticateFunc
+	Logger              *logrus.Entry
 }
 
 // NewHandler creates a WebSocket handler for GraphQL WebSocket connections.
 // This handler takes a SubscriptionManager and adds/removes subscriptions
 // as they are started/stopped by the client.
 func NewHandler(config HandlerConfig) http.Handler {
+	logger := config.Logger
+	if logger == nil {
+		logger = NewLogger("handler")
+	}
 	// Create a WebSocket upgrader that requires clients to implement
 	// the "graphql-ws" protocol
 	var upgrader = websocket.Upgrader{
@@ -25,7 +31,6 @@ func NewHandler(config HandlerConfig) http.Handler {
 		Subprotocols: []string{"graphql-ws"},
 	}
 
-	logger := NewLogger("handler")
 	subscriptionManager := config.SubscriptionManager
 
 	// Create a map (used like a set) to manage client connections
@@ -50,51 +55,59 @@ func NewHandler(config HandlerConfig) http.Handler {
 				return
 			}
 
+			var auth interface{}
+			if config.ReqAuthenticate != nil {
+				auth, _ = config.ReqAuthenticate(r)
+			}
 			// Establish a GraphQL WebSocket connection
-			conn := NewConnection(ws, ConnectionConfig{
-				Authenticate: config.Authenticate,
-				EventHandlers: ConnectionEventHandlers{
-					Close: func(conn Connection) {
-						logger.WithFields(log.Fields{
-							"conn": conn.ID(),
-							"user": conn.User(),
-						}).Debug("Closing connection")
+			conn := NewConnection(
+				ws,
+				ConnectionConfig{
+					Authenticate: config.Authenticate,
+					EventHandlers: ConnectionEventHandlers{
+						Close: func(conn Connection) {
+							logger.WithFields(logrus.Fields{
+								"conn": conn.ID(),
+								"user": conn.User(),
+							}).Debug("Closing connection")
 
-						subscriptionManager.RemoveSubscriptions(conn)
+							subscriptionManager.RemoveSubscriptions(conn)
 
-						connlock.Lock()
-						defer connlock.Unlock()
-						delete(connections, conn)
-					},
-					StartOperation: func(
-						conn Connection,
-						opID string,
-						data *StartMessagePayload,
-					) []error {
-						logger.WithFields(log.Fields{
-							"conn": conn.ID(),
-							"op":   opID,
-							"user": conn.User(),
-						}).Debug("Start operation")
+							connlock.Lock()
+							defer connlock.Unlock()
+							delete(connections, conn)
+						},
+						StartOperation: func(
+							conn Connection,
+							opID string,
+							data *StartMessagePayload,
+						) []error {
+							logger.WithFields(logrus.Fields{
+								"conn": conn.ID(),
+								"op":   opID,
+								"user": conn.User(),
+							}).Debug("Start operation")
 
-						return subscriptionManager.AddSubscription(conn, &Subscription{
-							ID:            opID,
-							Query:         data.Query,
-							Variables:     data.Variables,
-							OperationName: data.OperationName,
-							Connection:    conn,
-							SendData: func(data *DataMessagePayload) {
-								conn.SendData(opID, data)
-							},
-						})
-					},
-					StopOperation: func(conn Connection, opID string) {
-						subscriptionManager.RemoveSubscription(conn, &Subscription{
-							ID: opID,
-						})
+							return subscriptionManager.AddSubscription(conn, &Subscription{
+								ID:            opID,
+								Query:         data.Query,
+								Variables:     data.Variables,
+								OperationName: data.OperationName,
+								Connection:    conn,
+								SendData: func(data *DataMessagePayload) {
+									conn.SendData(opID, data)
+								},
+							})
+						},
+						StopOperation: func(conn Connection, opID string) {
+							subscriptionManager.RemoveSubscription(conn, &Subscription{
+								ID: opID,
+							})
+						},
 					},
 				},
-			})
+				auth,
+			)
 
 			connlock.Lock()
 			defer connlock.Unlock()

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -70,6 +71,11 @@ func (msg OperationMessage) String() string {
 // AuthenticateFunc is a function that resolves an auth token
 // into a user (or returns an error if that isn't possible).
 type AuthenticateFunc func(token string) (interface{}, error)
+
+// RequestAuthenticateFunc is a function that resolves  a user
+// from a request (or returns an error if that isn't possible).
+// nil, nil as return means there is no information about user
+type RequestAuthenticateFunc func(r *http.Request) (interface{}, error)
 
 // ConnectionEventHandlers define the event handlers for a connection.
 // Event handlers allow other system components to react to events such
@@ -141,7 +147,7 @@ func operationMessageForType(messageType string) OperationMessage {
 // NewConnection establishes a GraphQL WebSocket connection. It implements
 // the GraphQL WebSocket protocol by managing its internal state and handling
 // the client-server communication.
-func NewConnection(ws *websocket.Conn, config ConnectionConfig) Connection {
+func NewConnection(ws *websocket.Conn, config ConnectionConfig, auth interface{}) Connection {
 	conn := new(connection)
 	conn.id = uuid.New().String()
 	conn.ws = ws
@@ -149,6 +155,7 @@ func NewConnection(ws *websocket.Conn, config ConnectionConfig) Connection {
 	conn.logger = NewLogger("connection/" + conn.id)
 	conn.closed = false
 	conn.closeMutex = &sync.Mutex{}
+	conn.user = auth
 
 	conn.outgoing = make(chan OperationMessage)
 
@@ -288,22 +295,25 @@ func (conn *connection) readLoop() {
 		// When the GraphQL WS connection is initiated, send an ACK back
 		case gqlConnectionInit:
 			data := InitMessagePayload{}
-			if err := json.Unmarshal(rawPayload, &data); err != nil {
-				conn.SendError(errors.New("Invalid GQL_CONNECTION_INIT payload"))
-			} else {
-				if conn.config.Authenticate != nil {
-					user, err := conn.config.Authenticate(data.AuthToken)
-					if err != nil {
-						msg := operationMessageForType(gqlConnectionError)
-						msg.Payload = fmt.Sprintf("Failed to authenticate user: %v", err)
-						conn.outgoing <- msg
-					} else {
-						conn.user = user
-						conn.outgoing <- operationMessageForType(gqlConnectionAck)
-					}
+			if len(rawPayload) > 0 {
+				if err := json.Unmarshal(rawPayload, &data); err != nil {
+					conn.SendError(errors.New("Invalid GQL_CONNECTION_INIT payload"))
+				}
+				continue
+			}
+
+			if conn.config.Authenticate != nil {
+				user, err := conn.config.Authenticate(data.AuthToken)
+				if err != nil {
+					msg := operationMessageForType(gqlConnectionError)
+					msg.Payload = fmt.Sprintf("Failed to authenticate user: %v", err)
+					conn.outgoing <- msg
 				} else {
+					conn.user = user
 					conn.outgoing <- operationMessageForType(gqlConnectionAck)
 				}
+			} else {
+				conn.outgoing <- operationMessageForType(gqlConnectionAck)
 			}
 
 		// Let event handlers deal with starting operations
