@@ -105,6 +105,7 @@ func NewHandler(config HandlerConfig) http.Handler {
 							})
 						},
 					},
+					Logger: logger,
 				},
 				auth,
 			)
