@@ -216,6 +216,8 @@ func (conn *connection) sendOperationErrors(opID string, errs []error) {
 }
 
 func (conn *connection) close() {
+	log := conn.logger.WithField("id", conn.id)
+	log.Debug("closing connection")
 	// Close the write loop by closing the outgoing messages channels
 	conn.closeMutex.Lock()
 	conn.closed = true
@@ -224,10 +226,11 @@ func (conn *connection) close() {
 
 	// Notify event handlers
 	if conn.config.EventHandlers.Close != nil {
+		log.Debug("calling close handlers")
 		conn.config.EventHandlers.Close(conn)
 	}
 
-	conn.logger.Info("Closed connection")
+	log.Info("Closed connection")
 }
 
 func (conn *connection) writeLoop() {
@@ -236,33 +239,31 @@ func (conn *connection) writeLoop() {
 	// closed cleanly
 	defer conn.ws.Close()
 
-	for {
-		select {
+	for msg := range conn.outgoing {
 		// Take the next outgoing message from the channel
-		case msg, ok := <-conn.outgoing:
-			// Close the write loop when the outgoing messages channel is closed;
-			// this will close the connection
-			if !ok {
-				return
-			}
+		// Close the write loop when the outgoing messages channel is closed;
+		// this will close the connection
+		// if !ok {
+		// 	return
+		// }
 
+		conn.logger.WithFields(log.Fields{
+			"msg": msg.String(),
+		}).Debug("Send message")
+
+		conn.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
+
+		// Send the message to the client; if this times out, the WebSocket
+		// connection will be corrupt, hence we need to close the write loop
+		// and the connection immediately
+		if err := conn.ws.WriteJSON(msg); err != nil {
 			conn.logger.WithFields(log.Fields{
-				"msg": msg.String(),
-			}).Debug("Send message")
-
-			conn.ws.SetWriteDeadline(time.Now().Add(writeTimeout))
-
-			// Send the message to the client; if this times out, the WebSocket
-			// connection will be corrupt, hence we need to close the write loop
-			// and the connection immediately
-			if err := conn.ws.WriteJSON(msg); err != nil {
-				conn.logger.WithFields(log.Fields{
-					"err": err,
-				}).Warn("Sending message failed")
-				return
-			}
+				"err": err,
+			}).Warn("Sending message failed")
+			return
 		}
 	}
+	conn.logger.WithField("id", conn.id).Debug("exiting writeLoop")
 }
 
 func (conn *connection) readLoop() {
