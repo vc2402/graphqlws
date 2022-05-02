@@ -154,9 +154,10 @@ func NewConnection(ws *websocket.Conn, config ConnectionConfig, auth interface{}
 	conn.id = uuid.New().String()
 	conn.ws = ws
 	conn.config = config
-	conn.logger = config.Logger
-	if conn.logger == nil {
+	if config.Logger == nil {
 		conn.logger = NewLogger("connection/" + conn.id)
+	} else {
+		conn.logger = config.Logger.WithField("id", conn.id)
 	}
 	conn.closed = false
 	conn.closeMutex = &sync.Mutex{}
@@ -187,6 +188,8 @@ func (conn *connection) SendData(opID string, data *DataMessagePayload) {
 	conn.closeMutex.Lock()
 	if !conn.closed {
 		conn.outgoing <- msg
+	} else {
+		conn.logger.Debug("ignoring SendData call for closed connection")
 	}
 	conn.closeMutex.Unlock()
 }
@@ -197,6 +200,8 @@ func (conn *connection) SendError(err error) {
 	conn.closeMutex.Lock()
 	if !conn.closed {
 		conn.outgoing <- msg
+	} else {
+		conn.logger.Debug("ignoring SendError call for closed connection")
 	}
 	conn.closeMutex.Unlock()
 }
@@ -216,7 +221,7 @@ func (conn *connection) sendOperationErrors(opID string, errs []error) {
 }
 
 func (conn *connection) close() {
-	log := conn.logger.WithField("id", conn.id)
+	log := conn.logger
 	log.Debug("closing connection")
 	// Close the write loop by closing the outgoing messages channels
 	conn.closeMutex.Lock()
@@ -271,7 +276,6 @@ func (conn *connection) readLoop() {
 	defer conn.ws.Close()
 
 	conn.logger.WithFields(log.Fields{
-		"id":   conn.id,
 		"user": conn.user,
 	}).Debug("starting readLoop")
 	conn.ws.SetReadLimit(readLimit)
@@ -296,8 +300,8 @@ func (conn *connection) readLoop() {
 		}
 
 		conn.logger.WithFields(log.Fields{
-			"id":   msg.ID,
-			"type": msg.Type,
+			"msgID": msg.ID,
+			"type":  msg.Type,
 		}).Debug("Received message")
 
 		switch msg.Type {
@@ -315,9 +319,9 @@ func (conn *connection) readLoop() {
 			msg := operationMessageForType(gqlConnectionAck)
 			if conn.config.Authenticate != nil && data.AuthToken != "" {
 				conn.logger.WithFields(log.Fields{
-					"id":    msg.ID,
-					"type":  msg.Type,
-					"token": data.AuthToken,
+					"msgID":   msg.ID,
+					"msgType": msg.Type,
+					"token":   data.AuthToken,
 				}).Debug("going to authenticate user")
 				user, err := conn.config.Authenticate(data.AuthToken)
 				if err != nil {
@@ -325,9 +329,9 @@ func (conn *connection) readLoop() {
 					msg.Payload = fmt.Sprintf("Failed to authenticate user: %v", err)
 				} else {
 					conn.logger.WithFields(log.Fields{
-						"id":   msg.ID,
-						"type": msg.Type,
-						"user": user,
+						"msgID":   msg.ID,
+						"msgType": msg.Type,
+						"user":    user,
 					}).Debug("setting connection user")
 					conn.user = user
 				}
