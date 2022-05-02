@@ -270,6 +270,10 @@ func (conn *connection) readLoop() {
 	// Close the WebSocket connection when leaving the read loop
 	defer conn.ws.Close()
 
+	conn.logger.WithFields(log.Fields{
+		"id":   conn.id,
+		"user": conn.user,
+	}).Debug("starting readLoop")
 	conn.ws.SetReadLimit(readLimit)
 
 	for {
@@ -310,11 +314,21 @@ func (conn *connection) readLoop() {
 
 			msg := operationMessageForType(gqlConnectionAck)
 			if conn.config.Authenticate != nil && data.AuthToken != "" {
+				conn.logger.WithFields(log.Fields{
+					"id":    msg.ID,
+					"type":  msg.Type,
+					"token": data.AuthToken,
+				}).Debug("going to authenticate user")
 				user, err := conn.config.Authenticate(data.AuthToken)
 				if err != nil {
 					msg = operationMessageForType(gqlConnectionError)
 					msg.Payload = fmt.Sprintf("Failed to authenticate user: %v", err)
 				} else {
+					conn.logger.WithFields(log.Fields{
+						"id":   msg.ID,
+						"type": msg.Type,
+						"user": user,
+					}).Debug("setting connection user")
 					conn.user = user
 				}
 			}
