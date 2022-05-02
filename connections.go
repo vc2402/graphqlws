@@ -119,7 +119,7 @@ type Connection interface {
 
 	// SendData sends results of executing an operation (typically a
 	// subscription) to the client.
-	SendData(string, *DataMessagePayload)
+	SendData(string, *DataMessagePayload) bool
 
 	// SendError sends an error to the client.
 	SendError(error)
@@ -181,17 +181,19 @@ func (conn *connection) User() interface{} {
 	return conn.user
 }
 
-func (conn *connection) SendData(opID string, data *DataMessagePayload) {
+func (conn *connection) SendData(opID string, data *DataMessagePayload) bool {
 	msg := operationMessageForType(gqlData)
 	msg.ID = opID
 	msg.Payload = data
 	conn.closeMutex.Lock()
+	defer conn.closeMutex.Unlock()
 	if !conn.closed {
 		conn.outgoing <- msg
+		return true
 	} else {
 		conn.logger.Debug("ignoring SendData call for closed connection")
 	}
-	conn.closeMutex.Unlock()
+	return false
 }
 
 func (conn *connection) SendError(err error) {

@@ -94,8 +94,8 @@ func NewHandler(config HandlerConfig) http.Handler {
 								Variables:     data.Variables,
 								OperationName: data.OperationName,
 								Connection:    conn,
-								SendData: func(data *DataMessagePayload) {
-									conn.SendData(opID, data)
+								SendData: func(data *DataMessagePayload) bool {
+									return conn.SendData(opID, data)
 								},
 							})
 						},
