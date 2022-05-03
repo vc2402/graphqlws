@@ -212,7 +212,13 @@ func (m *subscriptionManager) RemoveSubscriptions(conn Connection) {
 	if m.subscriptions[conn] != nil {
 		// Remove subscriptions one by one
 		for opID := range m.subscriptions[conn] {
-			m.RemoveSubscription(conn, m.subscriptions[conn][opID])
+			m.logger.WithFields(log.Fields{
+				"conn": conn.ID(),
+			}).
+				WithField("subID", opID).
+				Debug("deleting connection's subscription")
+			delete(m.subscriptions[conn], opID)
+			// m.RemoveSubscription(conn, m.subscriptions[conn][opID])
 		}
 
 		// Remove the connection's subscription map altogether
