@@ -310,6 +310,9 @@ func (conn *connection) readLoop() {
 
 		// When the GraphQL WS connection is initiated, send an ACK back
 		case gqlConnectionInit:
+			conn.logger.WithFields(log.Fields{
+				"msg": msg,
+			}).Debug("connection_init received")
 			data := InitMessagePayload{}
 			if len(rawPayload) > 0 {
 				if err := json.Unmarshal(rawPayload, &data); err != nil {
