@@ -312,13 +312,17 @@ func (conn *connection) readLoop() {
 		case gqlConnectionInit:
 			conn.logger.WithFields(log.Fields{
 				"msg": msg,
-			}).Debug("connection_init received")
+			}).Trace("connection_init received")
 			data := InitMessagePayload{}
 			if len(rawPayload) > 0 {
 				if err := json.Unmarshal(rawPayload, &data); err != nil {
+					conn.logger.WithFields(log.Fields{
+						"payload": rawPayload,
+						"err":     err,
+					}).Warn("while unmarshalling payload")
 					conn.SendError(errors.New("Invalid GQL_CONNECTION_INIT payload"))
+					continue
 				}
-				continue
 			}
 
 			msg := operationMessageForType(gqlConnectionAck)
